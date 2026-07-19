@@ -4,8 +4,8 @@ namespace Shortly.Application.DTOs;
 
 public class UserResponse
 {
-    public long Id { get; init; }
-    public string Email { get; init; } = null!;
+    public long Id { get; set; }
+    public string Email { get; set; } = null!;
 
     public static UserResponse From(User user) => new()
     {

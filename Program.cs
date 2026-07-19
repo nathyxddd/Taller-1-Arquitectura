@@ -114,6 +114,9 @@ app.MapScalarApiReference();
 // Maps the redirect endpoint GET /{shortUrl} from Endpoints/UrlRedirectEndpoint.cs
 app.MapUrlRedirect();
 
+// Maps the REST API endpoints from Endpoints/LinkApiEndpoint.cs
+app.MapLinkApi();
+
 // Creates a scope for scoped services (e.g. AppDbContext)
 using (var scope = app.Services.CreateScope())
 {

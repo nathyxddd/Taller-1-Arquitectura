@@ -62,6 +62,38 @@ public sealed class LinkService : ILinkService
         return LinkResponse.From(link);
     }
 
+    public async Task<LinkResponse> GetLinkById(long id)
+    {
+        _logger.LogDebug("Retrieving link with id: {Id}", id);
+
+        var link = await _linkRepository.GetByIdAsync(id);
+        if (link is null)
+        {
+            _logger.LogWarning("Link not found with id {Id}.", id);
+            throw new KeyNotFoundException($"No link found with id '{id}'.");
+        }
+
+        _logger.LogInformation("Link retrieved successfully with id: {Id}.", link.Id);
+        return LinkResponse.From(link);
+    }
+
+    public async Task DeleteLink(long id)
+    {
+        _logger.LogDebug("Attempting to delete link with id: {Id}", id);
+
+        var link = await _linkRepository.GetByIdAsync(id);
+        if (link is null)
+        {
+            _logger.LogWarning("Delete failed: No link found with id {Id}.", id);
+            throw new KeyNotFoundException($"No link found with id '{id}'.");
+        }
+
+        _linkRepository.Delete(link);
+        await _linkRepository.SaveChangesAsync();
+
+        _logger.LogInformation("Link deleted successfully with id: {Id}.", id);
+    }
+
     public async Task<List<LinkResponse>> GetAllLinks()
     {
         _logger.LogDebug("Retrieving all links from the database ..");

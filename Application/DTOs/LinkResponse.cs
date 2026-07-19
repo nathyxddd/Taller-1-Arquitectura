@@ -4,10 +4,10 @@ namespace Shortly.Application.DTOs;
 
 public class LinkResponse
 {
-    public long Id { get; init; }
-    public string Url { get; init; } = null!;
-    public string ShortUrl { get; init; } = null!;
-    public int Clicks { get; init; }
+    public long Id { get; set; }
+    public string Url { get; set; } = null!;
+    public string ShortUrl { get; set; } = null!;
+    public int Clicks { get; set; }
     public static LinkResponse From(Link link) => new()
     {
         Id = link.Id,
