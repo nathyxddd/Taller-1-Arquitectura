@@ -1,4 +1,6 @@
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.ResponseCompression;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.OpenApi;
@@ -8,8 +10,11 @@ using Shortly.Application.Interfaces;
 using Shortly.Application.Services;
 using Shortly.Endpoints;
 using Shortly.Infrastructure;
+using Shortly.Infrastructure.Middleware;
 using Shortly.Infrastructure.Persistence;
 using Shortly.Infrastructure.Repositories;
+using System.Linq;
+using System.Threading.RateLimiting;
 
 // Creates the ASP.NET Core application builder with initial configuration
 var builder = WebApplication.CreateBuilder(args);
@@ -75,6 +80,55 @@ builder.Services.AddScoped<ILinkRepository, LinkRepository>();
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<ILinkService, LinkService>();
 
+// Configure Brotli/Gzip response compression to optimize asset transfer size.
+builder.Services.AddResponseCompression(options =>
+{
+    options.EnableForHttps = true;
+    options.MimeTypes = ResponseCompressionDefaults.MimeTypes.Concat(
+        new[] { "application/json", "text/html", "text/css", "application/javascript" });
+});
+builder.Services.Configure<BrotliCompressionProviderOptions>(options =>
+{
+    options.Level = System.IO.Compression.CompressionLevel.Fastest;
+});
+builder.Services.Configure<GzipCompressionProviderOptions>(options =>
+{
+    options.Level = System.IO.Compression.CompressionLevel.Fastest;
+});
+
+// Configure restrictive CORS policy to only permit requests from our trusted origins.
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("RestrictiveCorsPolicy", policy =>
+    {
+        policy.WithOrigins("http://localhost:5000", "https://localhost:5001")
+              .WithMethods("GET", "POST", "DELETE")
+              .WithHeaders("Content-Type", "Accept", "Authorization")
+              .SetPreflightMaxAge(TimeSpan.FromMinutes(10));
+    });
+});
+
+// Configure fixed-window rate limiter policy (5 req/min) for login endpoint brute-force defense.
+builder.Services.AddRateLimiter(options =>
+{
+    options.AddFixedWindowLimiter("LoginPolicy", opt =>
+    {
+        opt.PermitLimit = 5;
+        opt.Window = TimeSpan.FromMinutes(1);
+        opt.QueueLimit = 0;
+    });
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.OnRejected = async (context, token) =>
+    {
+        context.HttpContext.Response.Headers.Append("Retry-After", "60");
+        context.HttpContext.Response.ContentType = "text/plain";
+        await context.HttpContext.Response.WriteAsync("Too many login attempts. Please try again later.", cancellationToken: token);
+    };
+});
+
+// Configure health check services for liveness probing.
+builder.Services.AddHealthChecks();
+
 // Builds the application with all registered configurations
 var app = builder.Build();
 
@@ -92,6 +146,21 @@ app.UseStaticFiles();
 
 // Enables request routing
 app.UseRouting();
+
+// Custom performance middleware to measure request duration and log slow calls.
+app.UseMiddleware<PerformanceMiddleware>();
+
+// Custom security headers middleware to enforce browser-side defenses on all responses.
+app.UseMiddleware<SecurityHeadersMiddleware>();
+
+// Apply restrictive CORS policy (must run before authentication and routing handlers).
+app.UseCors("RestrictiveCorsPolicy");
+
+// Enable response compression middleware.
+app.UseResponseCompression();
+
+// Enable built-in rate limiting middleware before authentication/endpoints.
+app.UseRateLimiter();
 
 // Enables authentication (must come after UseRouting)
 app.UseAuthentication();
@@ -116,6 +185,9 @@ app.MapUrlRedirect();
 
 // Maps the REST API endpoints from Endpoints/LinkApiEndpoint.cs
 app.MapLinkApi();
+
+// Maps the Health checks endpoint
+app.MapHealthChecks("/health");
 
 // Creates a scope for scoped services (e.g. AppDbContext)
 using (var scope = app.Services.CreateScope())
