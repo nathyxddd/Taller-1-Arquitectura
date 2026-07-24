@@ -1,4 +1,6 @@
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.ResponseCompression;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.OpenApi;
@@ -8,8 +10,11 @@ using Shortly.Application.Interfaces;
 using Shortly.Application.Services;
 using Shortly.Endpoints;
 using Shortly.Infrastructure;
+using Shortly.Infrastructure.Middleware;
 using Shortly.Infrastructure.Persistence;
 using Shortly.Infrastructure.Repositories;
+using System.Linq;
+using System.Threading.RateLimiting;
 
 // Creates the ASP.NET Core application builder with initial configuration
 var builder = WebApplication.CreateBuilder(args);
@@ -93,6 +98,58 @@ builder.Services.AddScoped<ILinkRepository, LinkRepository>();
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<ILinkService, LinkService>();
 
+// Configure Response Compression (Brotli + Gzip)
+// Concept: Compression reduces file transfer size (HTML/CSS/JS/JSON) to decrease load times.
+builder.Services.AddResponseCompression(options =>
+{
+    options.EnableForHttps = true;
+    options.MimeTypes = ResponseCompressionDefaults.MimeTypes.Concat(
+        new[] { "application/json", "text/html", "text/css", "application/javascript" });
+});
+builder.Services.Configure<BrotliCompressionProviderOptions>(options =>
+{
+    options.Level = System.IO.Compression.CompressionLevel.Fastest;
+});
+builder.Services.Configure<GzipCompressionProviderOptions>(options =>
+{
+    options.Level = System.IO.Compression.CompressionLevel.Fastest;
+});
+
+// Configure Restrictive CORS Policy
+// Concept: CORS restricts which cross-origin applications are allowed to query our API.
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("RestrictiveCorsPolicy", policy =>
+    {
+        policy.WithOrigins("http://localhost:5000", "https://localhost:5001")
+              .WithMethods("GET", "POST", "DELETE")
+              .WithHeaders("Content-Type", "Accept", "Authorization")
+              .SetPreflightMaxAge(TimeSpan.FromMinutes(10));
+    });
+});
+
+// Configure Rate Limiting Policy
+// Concept: Throttles requests to prevent brute force or Denial of Service (DoS) attacks on critical paths.
+builder.Services.AddRateLimiter(options =>
+{
+    options.AddFixedWindowLimiter("LoginPolicy", opt =>
+    {
+        opt.PermitLimit = 5;
+        opt.Window = TimeSpan.FromMinutes(1);
+        opt.QueueLimit = 0;
+    });
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.OnRejected = async (context, token) =>
+    {
+        context.HttpContext.Response.Headers.Append("Retry-After", "60");
+        context.HttpContext.Response.ContentType = "text/plain";
+        await context.HttpContext.Response.WriteAsync("Too many login attempts. Please try again later.", cancellationToken: token);
+    };
+});
+
+// Configure Health Checks liveness probe
+builder.Services.AddHealthChecks();
+
 // Builds the application with all registered configurations
 var app = builder.Build();
 
@@ -110,6 +167,21 @@ app.UseStaticFiles();
 
 // Enables request routing
 app.UseRouting();
+
+// 1. Performance measurement middleware (outermost custom middleware to capture whole process)
+app.UseMiddleware<PerformanceMiddleware>();
+
+// 2. Security headers middleware (attaches security headers to all responses)
+app.UseMiddleware<SecurityHeadersMiddleware>();
+
+// 3. Apply CORS restrictive policy (must come before routing handlers and authentication)
+app.UseCors("RestrictiveCorsPolicy");
+
+// 4. Enable Response Compression
+app.UseResponseCompression();
+
+// 5. Enable Rate Limiting (must come before authentication/authorization/endpoints)
+app.UseRateLimiter();
 
 // Enables authentication (must come after UseRouting)
 app.UseAuthentication();
@@ -134,6 +206,9 @@ app.MapUrlRedirect();
 
 // Maps the REST API endpoints from Endpoints/LinkApiEndpoint.cs
 app.MapLinkApi();
+
+// Maps the Health checks endpoint
+app.MapHealthChecks("/health");
 
 // Creates a scope for scoped services (e.g. AppDbContext)
 using (var scope = app.Services.CreateScope())
