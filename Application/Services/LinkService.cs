@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using Shortly.Application.DTOs;
 using Shortly.Application.Interfaces;
 using Shortly.Domain.Entities;
@@ -19,7 +21,7 @@ public sealed class LinkService : ILinkService
     {
         _logger.LogDebug("Creating link for URL: {Url} and userId: {UserId}", url, userId);
 
-        var shortUrl = Ulid.NewUlid().ToString()[..12].ToLowerInvariant();
+        var shortUrl = GenerateSecureShortUrl();
         var link = new Link(url, shortUrl, userId);
 
         await _linkRepository.AddAsync(link);
@@ -27,6 +29,35 @@ public sealed class LinkService : ILinkService
 
         _logger.LogInformation("Link created successfully with shortUrl: {ShortUrl} and id: {Id}.", link.ShortUrl, link.Id);
         return LinkResponse.From(link);
+    }
+
+    /// <summary>
+    /// Genera un token corto seguro de 12 caracteres a partir de un ULID, aplicando la función de hash criptográfica SHA-256 codificada en Base62.
+    /// 
+    /// Fundamentos de Seguridad y Privacidad:
+    /// 1. Prevención de Ataques de Enumeración de Recursos (Resource Enumeration): Los tokens secuenciales o basados en tiempo permiten
+    ///    a un atacante deducir la cantidad total de enlaces creados y predecir o listar otros recursos en el sistema.
+    /// 2. Mitigación de Filtración de Metadata Temporal: Los ULID exponen en sus primeros 48 bits la marca de tiempo exacta de creación.
+    ///    Al procesar el ULID con SHA-256, se transforma el valor temporal en un hash digest de sentido único e impredecible, garantizando
+    ///    privacidad y unicidad sin revelar cuándo se generó el recurso.
+    /// </summary>
+    private static string GenerateSecureShortUrl()
+    {
+        var rawUlid = Ulid.NewUlid().ToString();
+        var hashBytes = SHA256.HashData(Encoding.UTF8.GetBytes(rawUlid));
+
+        const string base62Chars = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        var number = System.Numerics.BigInteger.Abs(new System.Numerics.BigInteger(hashBytes));
+        var sb = new StringBuilder();
+
+        while (number > 0)
+        {
+            number = System.Numerics.BigInteger.DivRem(number, 62, out var remainder);
+            sb.Append(base62Chars[(int)remainder]);
+        }
+
+        var base62String = sb.ToString();
+        return base62String.Length >= 12 ? base62String[..12] : base62String.PadRight(12, '0');
     }
 
     public async Task<LinkResponse> IncrementClicks(long linkId)
