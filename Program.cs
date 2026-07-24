@@ -49,12 +49,30 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 builder.Services.AddDistributedMemoryCache();
 builder.Services.AddSingleton<MemoryCacheTicketStore>();
 
-// Configures cookie authentication with a server-side ticket store
+// Configures cookie authentication with a server-side ticket store and hardened security policies
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(options =>
     {
         options.LoginPath = "/Login";
         options.AccessDeniedPath = "/Error";
+
+
+        // 1. HttpOnly = true: Inhabilita el acceso a la cookie desde scripts del cliente (DOM / document.cookie),
+        //    mitigando ataques de secuestro de sesión vía Cross-Site Scripting (XSS).
+        options.Cookie.HttpOnly = true;
+
+        // 2. SameSite = SameSiteMode.Strict: Instruye al navegador a no enviar la cookie en solicitudes de origen cruzado (Cross-Site),
+        //    mitigando eficazmente ataques de Falsificación de Peticiones en Sitios Cruzados (CSRF).
+        options.Cookie.SameSite = SameSiteMode.Strict;
+
+        // 3. Path = "/": Delimita el alcance de envío de la cookie exclusivamente al dominio y ruta base raíz del servidor web.
+        options.Cookie.Path = "/";
+
+        // 4. Secure = true (condicional): Fuerza el envío de la cookie únicamente a través de conexiones cifradas HTTPS en producción.
+        //    En desarrollo local permite HTTP mediante SameAsRequest para mantener la usabilidad del entorno.
+        options.Cookie.SecurePolicy = builder.Environment.IsDevelopment()
+            ? CookieSecurePolicy.SameAsRequest
+            : CookieSecurePolicy.Always;
     });
 
 // Injects the ticket store into the cookie options after the service provider is built

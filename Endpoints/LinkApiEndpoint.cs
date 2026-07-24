@@ -20,16 +20,16 @@ public static class LinkApiEndpoint
             }
             catch (Exception)
             {
-                return RespondWith(ctx, new ErrorResponse("Invalid request body format."), 400);
+                return CreateProblemDetailsResponse("Bad Request", "Invalid request body format.", 400);
             }
 
             if (req is null || string.IsNullOrWhiteSpace(req.Url))
-                return RespondWith(ctx, new ErrorResponse("URL is required."), 400);
+                return CreateProblemDetailsResponse("Bad Request", "URL is required.", 400);
 
             if (!Uri.TryCreate(req.Url, UriKind.Absolute, out var parsedUrl) ||
                 (parsedUrl.Scheme != Uri.UriSchemeHttp && parsedUrl.Scheme != Uri.UriSchemeHttps))
             {
-                return RespondWith(ctx, new ErrorResponse("URL must be a valid absolute http/https URL."), 400);
+                return CreateProblemDetailsResponse("Bad Request", "URL must be a valid absolute http/https URL.", 400);
             }
 
             try
@@ -40,7 +40,7 @@ public static class LinkApiEndpoint
             }
             catch (ArgumentException ex)
             {
-                return RespondWith(ctx, new ErrorResponse(ex.Message), 400);
+                return CreateProblemDetailsResponse("Bad Request", ex.Message, 400);
             }
         })
         .WithName("CreateUrl")
@@ -69,7 +69,7 @@ public static class LinkApiEndpoint
             }
             catch (KeyNotFoundException ex)
             {
-                return RespondWith(ctx, new ErrorResponse(ex.Message), 404);
+                return CreateProblemDetailsResponse("Link Not Found", ex.Message, 404);
             }
         })
         .WithName("GetUrlById")
@@ -88,7 +88,7 @@ public static class LinkApiEndpoint
             }
             catch (KeyNotFoundException ex)
             {
-                return RespondWith(ctx, new ErrorResponse(ex.Message), 404);
+                return CreateProblemDetailsResponse("Link Not Found", ex.Message, 404);
             }
         })
         .WithName("DeleteUrl")
@@ -158,6 +158,23 @@ public static class LinkApiEndpoint
         }
 
         return Results.StatusCode(406);
+    }
+
+    /// <summary>
+    /// Devuelve una respuesta de error estandarizada según la especificación RFC 7807 (Problem Details - application/problem+json).
+    /// 
+    /// Fundamento de Interoperabilidad entre APIs:
+    /// El uso de Problem Details estandariza los esquemas de error en respuestas HTTP (incluyendo campos machine-readable como Title, Detail y Status).
+    /// Esto evita la necesidad de definir estructuras de error propietarias y permite que cualquier cliente HTTP o microservicio
+    /// interprete y procese los fallos de manera uniforme, mejorando significativamente la interoperabilidad entre APIs.
+    /// </summary>
+    private static IResult CreateProblemDetailsResponse(string title, string detail, int statusCode)
+    {
+        return Results.Problem(
+            title: title,
+            detail: detail,
+            statusCode: statusCode
+        );
     }
 }
 
