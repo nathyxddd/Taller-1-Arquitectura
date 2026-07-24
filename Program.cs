@@ -80,8 +80,7 @@ builder.Services.AddScoped<ILinkRepository, LinkRepository>();
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<ILinkService, LinkService>();
 
-// Configure Response Compression (Brotli + Gzip)
-// Concept: Compression reduces file transfer size (HTML/CSS/JS/JSON) to decrease load times.
+// Configure Brotli/Gzip response compression to optimize asset transfer size.
 builder.Services.AddResponseCompression(options =>
 {
     options.EnableForHttps = true;
@@ -97,8 +96,7 @@ builder.Services.Configure<GzipCompressionProviderOptions>(options =>
     options.Level = System.IO.Compression.CompressionLevel.Fastest;
 });
 
-// Configure Restrictive CORS Policy
-// Concept: CORS restricts which cross-origin applications are allowed to query our API.
+// Configure restrictive CORS policy to only permit requests from our trusted origins.
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("RestrictiveCorsPolicy", policy =>
@@ -110,8 +108,7 @@ builder.Services.AddCors(options =>
     });
 });
 
-// Configure Rate Limiting Policy
-// Concept: Throttles requests to prevent brute force or Denial of Service (DoS) attacks on critical paths.
+// Configure fixed-window rate limiter policy (5 req/min) for login endpoint brute-force defense.
 builder.Services.AddRateLimiter(options =>
 {
     options.AddFixedWindowLimiter("LoginPolicy", opt =>
@@ -129,7 +126,7 @@ builder.Services.AddRateLimiter(options =>
     };
 });
 
-// Configure Health Checks liveness probe
+// Configure health check services for liveness probing.
 builder.Services.AddHealthChecks();
 
 // Builds the application with all registered configurations
@@ -150,19 +147,19 @@ app.UseStaticFiles();
 // Enables request routing
 app.UseRouting();
 
-// 1. Performance measurement middleware (outermost custom middleware to capture whole process)
+// Custom performance middleware to measure request duration and log slow calls.
 app.UseMiddleware<PerformanceMiddleware>();
 
-// 2. Security headers middleware (attaches security headers to all responses)
+// Custom security headers middleware to enforce browser-side defenses on all responses.
 app.UseMiddleware<SecurityHeadersMiddleware>();
 
-// 3. Apply CORS restrictive policy (must come before routing handlers and authentication)
+// Apply restrictive CORS policy (must run before authentication and routing handlers).
 app.UseCors("RestrictiveCorsPolicy");
 
-// 4. Enable Response Compression
+// Enable response compression middleware.
 app.UseResponseCompression();
 
-// 5. Enable Rate Limiting (must come before authentication/authorization/endpoints)
+// Enable built-in rate limiting middleware before authentication/endpoints.
 app.UseRateLimiter();
 
 // Enables authentication (must come after UseRouting)
